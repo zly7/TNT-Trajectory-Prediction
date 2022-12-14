@@ -65,9 +65,9 @@ class VectorNetBackbone(nn.Module):
         time_step_len = data.time_step_len[0].int()
         valid_lens = data.valid_len
 
-        id_embedding = data.identifier
+        id_embedding = data.identifier  # todo:这个不知道是啥,但是显然是能用在注意力机制里面的.这个是这个新版本最主要的改变,猜测是代表这个对应物体的类型比如是车，道路点，交通标志啥的。
 
-        sub_graph_out = self.subgraph(data)
+        sub_graph_out = self.subgraph(data)  # 这个是提取每个点的特征的时序信息的
 
         if self.training and self.with_aux:
             randoms = 1 + torch.rand((batch_size,), device=self.device) * (valid_lens - 2) + \
@@ -79,14 +79,14 @@ class VectorNetBackbone(nn.Module):
 
         # reconstruct the batch global interaction graph data
         x = torch.cat([sub_graph_out, id_embedding], dim=1).view(batch_size, -1, self.subgraph.out_channels + 2)
-        valid_lens = data.valid_len
+        valid_lens = data.valid_len  # 这个是每个场景不一样的。从70到300不等,是一个list
 
         if self.training:
             # mask out the features for a random subset of polyline nodes
             # for one batch, we mask the same polyline features
 
             # global_graph_out = self.global_graph(sub_graph_out, batch_size=data.num_graphs)
-            global_graph_out = self.global_graph(x, valid_lens=valid_lens)
+            global_graph_out = self.global_graph(x, valid_lens=valid_lens)  # 这个是那个注意力机制
 
             if self.with_aux:
                 aux_in = global_graph_out.view(-1, self.global_graph_width)[mask_polyline_indices]

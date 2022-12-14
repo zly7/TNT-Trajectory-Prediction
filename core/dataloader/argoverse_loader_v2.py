@@ -11,6 +11,7 @@ from copy import deepcopy, copy
 
 import torch
 from torch_geometric.data import Data, Dataset, InMemoryDataset, DataLoader
+
 # from torch.utils.data import DataLoader
 
 sys.path.append("core/dataloader")
@@ -44,7 +45,7 @@ class GraphData(Data):
     override key `cluster` indicating which polyline_id is for the vector
     """
 
-    def __inc__(self, key, value):
+    def __inc__(self, key, value, *args, **kwargs):
         if key == 'edge_index':
             return self.x.size(0)
         elif key == 'cluster':
@@ -52,19 +53,27 @@ class GraphData(Data):
         else:
             return 0
 
+
 # %%
 
 
 # dataset loader which loads data into memory
-class ArgoverseInMem(InMemoryDataset):
-    def __init__(self, root, transform=None, pre_transform=None):
+class ArgoverseInMem(InMemoryDataset):  # pytorch的dataset显然提供了一个从并行加载数据的接口
+    def __init__(self, root, transform=None, pre_transform=None, max_load_num=7000, specific_index = -1):
+        # self.seq_id_list = []
+        self.max_load_num = max_load_num
         super(ArgoverseInMem, self).__init__(root, transform, pre_transform)
-        self.data, self.slices = torch.load(self.processed_paths[0])
+        self.data, self.slices = torch.load(self.processed_paths[0])  # 这个非常害怕生成了一半，然后就会报错
         gc.collect()
 
     @property
-    def raw_file_names(self):
-        return [file for file in os.listdir(self.raw_dir) if "features" in file and file.endswith(".pkl")]
+    def raw_file_names(self):  # 这个决定了raw_paths
+        temp = [file for file in os.listdir(self.raw_dir) if "features" in file and file.endswith(".pkl")]
+
+        # todo:分割路径
+        temp = sorted(temp)
+        temp = temp[:self.max_load_num]
+        return temp
 
     @property
     def processed_file_names(self):
@@ -91,29 +100,31 @@ class ArgoverseInMem(InMemoryDataset):
 
             candidate_num = raw_data['tar_candts'].values[0].shape[0]
             candidate_lens.append(candidate_num)
-        num_valid_len_max = np.max(valid_lens)
+        # print(self.raw_paths)
+        num_valid_len_max = np.max(valid_lens)  # 这个是在这里拿到的
         num_candidate_max = np.max(candidate_lens)
         print("\n[Argoverse]: The maximum of valid length is {}.".format(num_valid_len_max))
         print("[Argoverse]: The maximum of no. of candidates is {}.".format(num_candidate_max))
 
         # pad vectors to the largest polyline id and extend cluster, save the Data to disk
         data_list = []
+        # 最后步骤的处理
         for ind, raw_path in enumerate(tqdm(self.raw_paths, desc="Transforming the data to GraphData...")):
             raw_data = pd.read_pickle(raw_path)
 
             # input data
-            x, cluster, edge_index, identifier = self._get_x(raw_data)
+            x, cluster, edge_index, identifier = self._get_x(raw_data)  # 这里并没有处理不同场景车辆不一样问题
             y = self._get_y(raw_data)
-            graph_input = GraphData(
+            graph_input = GraphData(  # 自己定义这个data是可以额外标很多属性的
                 x=torch.from_numpy(x).float(),
                 y=torch.from_numpy(y).float(),
                 cluster=torch.from_numpy(cluster).short(),
                 edge_index=torch.from_numpy(edge_index).long(),
-                identifier=torch.from_numpy(identifier).float(),    # the identify embedding of global graph completion
+                identifier=torch.from_numpy(identifier).float(),  # the identify embedding of global graph completion
 
-                traj_len=torch.tensor([traj_lens[ind]]).int(),            # number of traj polyline
-                valid_len=torch.tensor([valid_lens[ind]]).int(),          # number of valid polyline
-                time_step_len=torch.tensor([num_valid_len_max]).int(),    # the maximum of no. of polyline
+                traj_len=torch.tensor([traj_lens[ind]]).int(),  # number of traj polyline
+                valid_len=torch.tensor([valid_lens[ind]]).int(),  # number of valid polyline
+                time_step_len=torch.tensor([num_valid_len_max]).int(),  # the maximum of no. of polyline
 
                 candidate_len_max=torch.tensor([num_candidate_max]).int(),
                 candidate_mask=[],
@@ -141,7 +152,8 @@ class ArgoverseInMem(InMemoryDataset):
         # pad feature with zero nodes
         data.x = torch.cat([data.x, torch.zeros((index_to_pad - valid_len, feature_len), dtype=data.x.dtype)])
         data.cluster = torch.cat([data.cluster, torch.arange(valid_len, index_to_pad, dtype=data.cluster.dtype)]).long()
-        data.identifier = torch.cat([data.identifier, torch.zeros((index_to_pad - valid_len, 2), dtype=data.identifier.dtype)])
+        data.identifier = torch.cat(
+            [data.identifier, torch.zeros((index_to_pad - valid_len, 2), dtype=data.identifier.dtype)])
 
         # pad candidate and candidate_gt
         num_cand_max = data.candidate_len_max[0].item()
@@ -149,7 +161,8 @@ class ArgoverseInMem(InMemoryDataset):
                                          torch.zeros((num_cand_max - len(data.candidate), 1))])
         data.candidate = torch.cat([data.candidate[:, :2], torch.zeros((num_cand_max - len(data.candidate), 2))])
         data.candidate_gt = torch.cat([data.candidate_gt,
-                                       torch.zeros((num_cand_max - len(data.candidate_gt), 1), dtype=data.candidate_gt.dtype)])
+                                       torch.zeros((num_cand_max - len(data.candidate_gt), 1),
+                                                   dtype=data.candidate_gt.dtype)])
 
         assert data.cluster.shape[0] == data.x.shape[0], "[ERROR]: Loader error!"
 
@@ -174,26 +187,28 @@ class ArgoverseInMem(InMemoryDataset):
         # get traj features
         traj_feats = data_seq['feats'].values[0]
         traj_has_obss = data_seq['has_obss'].values[0]
-        step = np.arange(0, traj_feats.shape[1]).reshape((-1, 1))
+        step = np.arange(0, traj_feats.shape[1]).reshape((-1, 1))  #  这个就是单调递增的序列，为了表达时序信息的
         traj_cnt = 0
         for _, [feat, has_obs] in enumerate(zip(traj_feats, traj_has_obss)):
-            xy_s = feat[has_obs][:-1, :2]
-            vec = feat[has_obs][1:, :2] - feat[has_obs][:-1, :2]
-            traffic_ctrl = np.zeros((len(xy_s), 1))
+            xy_s = feat[has_obs][:-1, :2]  # 这个是历史轨迹
+            vec = feat[has_obs][1:, :2] - feat[has_obs][:-1, :2]  #  这个是历史前进轨迹
+            traffic_ctrl = np.zeros((len(xy_s), 1))  # 可以看出这里没有但是都是填的1
             is_intersect = np.zeros((len(xy_s), 1))
             is_turn = np.zeros((len(xy_s), 2))
             polyline_id = np.ones((len(xy_s), 1)) * traj_cnt
-            feats = np.vstack([feats, np.hstack([xy_s, vec, step[has_obs][:-1], traffic_ctrl, is_turn, is_intersect, polyline_id])])
+            feats = np.vstack(
+                [feats, np.hstack([xy_s, vec, step[has_obs][:-1], traffic_ctrl, is_turn, is_intersect, polyline_id])])
+            #  这个代表我直接往后堆积
             traj_cnt += 1
 
         # get lane features
         graph = data_seq['graph'].values[0]
-        ctrs = graph['ctrs']
+        ctrs = graph['ctrs']  # 这个是一个矩阵，横轴是有多少个小点
         vec = graph['feats']
         traffic_ctrl = graph['control'].reshape(-1, 1)
-        is_turns = graph['turn']
-        is_intersect = graph['intersect'].reshape(-1, 1)
-        lane_idcs = graph['lane_idcs'].reshape(-1, 1) + traj_cnt
+        is_turns = graph['turn']  # 这一截路是否向哪边拐
+        is_intersect = graph['intersect'].reshape(-1, 1)  #  这个路段是不是交叉路口的路段
+        lane_idcs = graph['lane_idcs'].reshape(-1, 1) + traj_cnt  # 道路的ID
         steps = np.zeros((len(lane_idcs), 1))
         feats = np.vstack([feats, np.hstack([ctrs, vec, steps, traffic_ctrl, is_turns, is_intersect, lane_idcs])])
 
@@ -203,7 +218,7 @@ class ArgoverseInMem(InMemoryDataset):
             [indices] = np.where(cluster == cluster_idc)
             identifier = np.vstack([identifier, np.min(feats[indices, :2], axis=0)])
             if len(indices) <= 1:
-                continue                # skip if only 1 node
+                continue  # skip if only 1 node
             if cluster_idc < traj_cnt:
                 edge_index = np.hstack([edge_index, get_fc_edge_index(indices)])
             else:
@@ -276,11 +291,11 @@ class ArgoverseInDisk(Dataset):
                 y=torch.from_numpy(y).float(),
                 cluster=torch.from_numpy(cluster).short(),
                 edge_index=torch.from_numpy(edge_index).long(),
-                identifier=torch.from_numpy(identifier).float(),    # the identify embedding of global graph completion
+                identifier=torch.from_numpy(identifier).float(),  # the identify embedding of global graph completion
 
-                traj_len=torch.tensor([traj_lens[ind]]).int(),            # number of traj polyline
-                valid_len=torch.tensor([valid_lens[ind]]).int(),          # number of valid polyline
-                time_step_len=torch.tensor([num_valid_len_max]).int(),    # the maximum of no. of polyline
+                traj_len=torch.tensor([traj_lens[ind]]).int(),  # number of traj polyline
+                valid_len=torch.tensor([valid_lens[ind]]).int(),  # number of valid polyline
+                time_step_len=torch.tensor([num_valid_len_max]).int(),  # the maximum of no. of polyline
 
                 candidate_len_max=torch.tensor([num_candidate_max]).int(),
                 candidate_mask=[],
@@ -346,7 +361,8 @@ class ArgoverseInDisk(Dataset):
             is_intersect = np.zeros((len(xy_s), 1))
             is_turn = np.zeros((len(xy_s), 2))
             polyline_id = np.ones((len(xy_s), 1)) * traj_cnt
-            feats = np.vstack([feats, np.hstack([xy_s, vec, step[has_obs][:-1], traffic_ctrl, is_turn, is_intersect, polyline_id])])
+            feats = np.vstack(
+                [feats, np.hstack([xy_s, vec, step[has_obs][:-1], traffic_ctrl, is_turn, is_intersect, polyline_id])])
             traj_cnt += 1
 
         # get lane features
@@ -366,7 +382,7 @@ class ArgoverseInDisk(Dataset):
             [indices] = np.where(cluster == cluster_idc)
             identifier = np.vstack([identifier, np.min(feats[indices, :2], axis=0)])
             if len(indices) <= 1:
-                continue                # skip if only 1 node
+                continue  # skip if only 1 node
             if cluster_idc < traj_cnt:
                 edge_index = np.hstack([edge_index, get_fc_edge_index(indices)])
             else:
@@ -384,10 +400,11 @@ class ArgoverseInDisk(Dataset):
 if __name__ == "__main__":
 
     # for folder in os.listdir("./data/interm_data"):
-    INTERMEDIATE_DATA_DIR = "../../dataset/interm_data"
+    # INTERMEDIATE_DATA_DIR = "../../../Dataset/interm_data_small"
+    INTERMEDIATE_DATA_DIR = "../../../Dataset/interm_data_small"
 
     for folder in ["train", "val", "test"]:
-    # for folder in ["test"]:
+        # for folder in ["test"]:
         dataset_input_path = os.path.join(INTERMEDIATE_DATA_DIR, f"{folder}_intermediate")
 
         # dataset = Argoverse(dataset_input_path)

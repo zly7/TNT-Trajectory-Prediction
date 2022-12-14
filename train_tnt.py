@@ -6,6 +6,8 @@ import json
 import argparse
 
 # from core.dataloader.argoverse_loader import Argoverse, GraphData, ArgoverseInMem
+import torch
+
 from core.dataloader.argoverse_loader_v2 import ArgoverseInMem as ArgoverseInMemv2, GraphData
 from core.trainer.tnt_trainer import TNTTrainer
 
@@ -18,8 +20,9 @@ def train(gpu, args):
     :param args:
     :return:
     """
-    train_set = ArgoverseInMemv2(pjoin(args.data_root, "train_intermediate")).shuffle()
-    eval_set = ArgoverseInMemv2(pjoin(args.data_root, "val_intermediate"))
+    train_set = ArgoverseInMemv2(pjoin(args.data_root, "train_intermediate"), max_load_num=100).shuffle()
+    print("train set over")
+    eval_set = ArgoverseInMemv2(pjoin(args.data_root, "val_intermediate"),max_load_num=100)
 
     # init output dir
     time_stamp = datetime.now().strftime("%m-%d-%H-%M")
@@ -55,12 +58,14 @@ def train(gpu, args):
         save_folder=output_dir,
         log_freq=args.log_freq,
         ckpt_path=args.resume_checkpoint if hasattr(args, "resume_checkpoint") and args.resume_checkpoint else None,
-        model_path=args.resume_model if hasattr(args, "resume_model") and args.resume_model else None
+        model_path=args.resume_model if hasattr(args, "resume_model") and args.resume_model else None,
+        on_memory=args.on_memory,
+        global_graph_width=args.global_graph_width,
     )
 
     # resume minimum eval loss
     min_eval_loss = trainer.min_eval_loss
-
+    # TNTnet模型600MB
     # training
     for iter_epoch in range(args.n_epoch):
         _ = trainer.train(iter_epoch)
@@ -79,51 +84,82 @@ def train(gpu, args):
     trainer.save_model("final")
 
 
+class Args:
+    def __init__(self):
+        self.data_root = "../Dataset/interm_data_small"
+        self.output_dir = "run/tnt/"
+        self.num_glayer = 1  # global layer的层数
+        self.aux_loss = True
+        self.batch_size = 64  # 128 4G显存要爆掉
+        self.n_epoch = 1000
+        # self.num_workers = 16  # 这个是控制 CPUloader的数量
+        self.num_workers = 0  # 0代表主线程去做
+        self.with_cuda = True
+        # self.multi_gpu = "torch.distributed.launch"
+        self.multi_gpu = False
+        self.local_rank = 0
+        self.log_freq = 2
+        # self.on_memory = True  # 这个指标就没用
+        self.on_memory = False
+        # self.lr = 0.0012
+        self.lr = 0.006
+        self.warmup_epoch = 30
+        self.lr_update_freq = 200
+        # self.lr_decay_rate = 0.3
+        self.lr_decay_rate = 0.1
+        self.adam_weight_decay = 0.001 # 这个是每轮衰减多少
+        self.adam_beta1 = 0.9
+        self.adam_beta2 = 0.999  # 这些接口都是开的很好的
+        # self.model_path = "/home/zhuhe/TNT-Trajectory-Prediction/run/tnt/TNT_bestmodel/TNT/best_TNT.pth"
+        self.global_graph_width = 96
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    # parser = argparse.ArgumentParser()
+#
+    # parser.add_argument("-d", "--data_root", required=False, type=str, default="../Dataset/interm_data",
+    #                     help="root dir for datasets")
+    # parser.add_argument("-o", "--output_dir", required=False, type=str, default="run/tnt/",
+    #                     help="ex)dir to save checkpoint and model")
+#
+    # parser.add_argument("-l", "--num_glayer", type=int, default=1,
+    #                     help="number of global graph layers")
+    # parser.add_argument("-a", "--aux_loss", action="store_true", default=True,
+    #                     help="Training with the auxiliary recovery loss")
+#
+    # parser.add_argument("-b", "--batch_size", type=int, default=2,
+    #                     help="number of batch_size")
+    # parser.add_argument("-e", "--n_epoch", type=int, default=50,
+    #                     help="number of epochs")
+    # parser.add_argument("-w", "--num_workers", type=int, default=16,
+    #                     help="dataloader worker size")
+#
+    # parser.add_argument("-c", "--with_cuda", action="store_true", default=False,
+    #                     help="training with CUDA: true, or false")
+    # parser.add_argument("-m", "--multi_gpu", action="store_true", default=False,
+    #                     help="training with distributed data parallel: true, or false")
+    # parser.add_argument("-r", "--local_rank", default=0, type=int,
+    #                     help="the default id of gpu")
+#
+    # parser.add_argument("--log_freq", type=int, default=2,
+    #                     help="printing loss every n iter: setting n")
+    # # parser.add_argument("--on_memory", type=bool, default=True, help="Loading on memory: true or false")
+#
+    # parser.add_argument("--lr", type=float, default=1e-3, help="learning rate of adam")
+    # parser.add_argument("-we", "--warmup_epoch", type=int, default=30,
+    #                     help="the number of warmup epoch with initial learning rate, after the learning rate decays")
+    # parser.add_argument("-luf", "--lr_update_freq", type=int, default=5,
+    #                     help="learning rate decay frequency for lr scheduler")
+    # parser.add_argument("-ldr", "--lr_decay_rate", type=float, default=0.9, help="lr scheduler decay rate")
+    # parser.add_argument("--adam_weight_decay", type=float, default=0.01, help="weight_decay of adam")
+    # parser.add_argument("--adam_beta1", type=float, default=0.9, help="adam first beta value")
+    # parser.add_argument("--adam_beta2", type=float, default=0.999, help="adam first beta value")
+#
+    # parser.add_argument("-rc", "--resume_checkpoint", type=str,
+    #                     help="resume a checkpoint for fine-tune")
+    # parser.add_argument("-rm", "--resume_model", type=str,
+    #                     help="resume a model state for fine-tune")
 
-    parser.add_argument("-d", "--data_root", required=False, type=str, default="dataset/interm_tnt_n_s_0804_small",
-                        help="root dir for datasets")
-    parser.add_argument("-o", "--output_dir", required=False, type=str, default="run/tnt/",
-                        help="ex)dir to save checkpoint and model")
-
-    parser.add_argument("-l", "--num_glayer", type=int, default=1,
-                        help="number of global graph layers")
-    parser.add_argument("-a", "--aux_loss", action="store_true", default=True,
-                        help="Training with the auxiliary recovery loss")
-
-    parser.add_argument("-b", "--batch_size", type=int, default=2,
-                        help="number of batch_size")
-    parser.add_argument("-e", "--n_epoch", type=int, default=50,
-                        help="number of epochs")
-    parser.add_argument("-w", "--num_workers", type=int, default=16,
-                        help="dataloader worker size")
-
-    parser.add_argument("-c", "--with_cuda", action="store_true", default=False,
-                        help="training with CUDA: true, or false")
-    parser.add_argument("-m", "--multi_gpu", action="store_true", default=False,
-                        help="training with distributed data parallel: true, or false")
-    parser.add_argument("-r", "--local_rank", default=0, type=int,
-                        help="the default id of gpu")
-
-    parser.add_argument("--log_freq", type=int, default=2,
-                        help="printing loss every n iter: setting n")
-    # parser.add_argument("--on_memory", type=bool, default=True, help="Loading on memory: true or false")
-
-    parser.add_argument("--lr", type=float, default=1e-3, help="learning rate of adam")
-    parser.add_argument("-we", "--warmup_epoch", type=int, default=30,
-                        help="the number of warmup epoch with initial learning rate, after the learning rate decays")
-    parser.add_argument("-luf", "--lr_update_freq", type=int, default=5,
-                        help="learning rate decay frequency for lr scheduler")
-    parser.add_argument("-ldr", "--lr_decay_rate", type=float, default=0.9, help="lr scheduler decay rate")
-    parser.add_argument("--adam_weight_decay", type=float, default=0.01, help="weight_decay of adam")
-    parser.add_argument("--adam_beta1", type=float, default=0.9, help="adam first beta value")
-    parser.add_argument("--adam_beta2", type=float, default=0.999, help="adam first beta value")
-
-    parser.add_argument("-rc", "--resume_checkpoint", type=str,
-                        help="resume a checkpoint for fine-tune")
-    parser.add_argument("-rm", "--resume_model", type=str,
-                        help="resume a model state for fine-tune")
-
-    args = parser.parse_args()
+    # args = parser.parse_args()
+    args = Args()
     train(args.local_rank, args)

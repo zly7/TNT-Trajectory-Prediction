@@ -267,7 +267,7 @@ if __name__ == "__main__":
 
     # for folder in os.listdir("./data/interm_data"):
     # INTERMEDIATE_DATA_DIR = "../../dataset/interm_tnt_with_filter"
-    INTERMEDIATE_DATA_DIR = "../../dataset/interm_tnt_n_s_0727"
+    INTERMEDIATE_DATA_DIR = "../../../Dataset/interm_tnt_n_s_0727"
     # INTERMEDIATE_DATA_DIR = "/media/Data/autonomous_driving/Argoverse/intermediate"
 
     for folder in ["train", "val"]:

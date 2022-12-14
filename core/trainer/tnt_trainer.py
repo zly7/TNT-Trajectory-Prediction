@@ -1,4 +1,7 @@
+import copy
 import os
+import pickle
+
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -19,7 +22,7 @@ from core.model.TNT import TNT
 from core.optim_schedule import ScheduledOptim
 from core.util.viz_utils import show_pred_and_gt
 from core.loss import TNTLoss
-
+# from core.util.preprocessor.argoverse_preprocess_v2 import visualize_data
 
 class TNTTrainer(Trainer):
     """
@@ -48,7 +51,9 @@ class TNTTrainer(Trainer):
                  save_folder: str = "",
                  model_path: str = None,
                  ckpt_path: str = None,
-                 verbose: bool = True
+                 verbose: bool = True,
+                 on_memory: bool = False,
+                 global_graph_width: int = 64,
                  ):
         """
         trainer class for tnt
@@ -83,7 +88,8 @@ class TNTTrainer(Trainer):
             enable_log=enable_log,
             log_freq=log_freq,
             save_folder=save_folder,
-            verbose=verbose
+            verbose=verbose,
+            on_memory=on_memory,
         )
 
         # init or load model
@@ -96,13 +102,14 @@ class TNTTrainer(Trainer):
 
         # input dim: (20, 8); output dim: (30, 2)
         # model_name = VectorNet
-        model_name = TNT
+        model_name = TNT  # 这么写真的很强
         self.model = model_name(
             self.trainset.num_features if hasattr(self.trainset, 'num_features') else self.testset.num_features,
             self.horizon,
             num_global_graph_layer=num_global_graph_layer,
             with_aux=aux_loss,
-            device=self.device
+            device=self.device,
+            global_graph_width=global_graph_width
         )
         self.criterion = TNTLoss(
             self.lambda1, self.lambda2, self.lambda3,
@@ -113,7 +120,7 @@ class TNTTrainer(Trainer):
 
         # init optimizer
         self.optim = AdamW(self.model.parameters(), lr=self.lr, betas=self.betas, weight_decay=self.weight_decay)
-        self.optm_schedule = ScheduledOptim(
+        self.optm_schedule = ScheduledOptim(  # 这个是学习率的变化情况
             self.optim,
             self.lr,
             n_warmup_epoch=self.warmup_epoch,
@@ -166,7 +173,8 @@ class TNTTrainer(Trainer):
 
             if training:
                 self.optm_schedule.zero_grad()
-                loss, loss_dict = self.compute_loss(data)
+                loss, loss_dict = self.compute_loss(data)  # compute_loss承担主要的前向传播的任务
+                                                        # 它这里loss的计算也相当于搞成一个moudle
 
                 if self.multi_gpu:
                     with amp.scale_loss(loss, self.optim) as scaled_loss:
@@ -218,12 +226,23 @@ class TNTTrainer(Trainer):
         n = data.candidate_len_max[0]
         data.y = data.y.view(-1, self.horizon, 2).cumsum(axis=1)
         pred, aux_out, aux_gt = self.model(data)
-
+        #拿到结果
         gt = {
             "target_prob": data.candidate_gt.view(-1, n),
             "offset": data.offset_gt.view(-1, 2),
             "y": data.y.view(-1, self.horizon * 2)
         }
+        # 把seq_id和未來的軌跡放進run/info裡面，但是这个数据好像是一维的，不知道是不是预测的数据
+        #在训练的时候是用50个点反向传播的
+        # seq_id = data["seq_id"]
+        # save_info = {}
+        # save_info['seq_id'] = seq_id
+        # save_info['pred_gt'] = pred['traj_with_gt'].detach().cpu().numpy()
+        # with open('../../run/info.txt', mode='w') as f:
+        #     f.write(pickle.dump(save_info))
+        # return
+        # 测试一下，等会删掉
+
 
         return self.criterion(pred, gt, aux_out, aux_gt)
 
@@ -270,12 +289,19 @@ class TNTTrainer(Trainer):
                     out = self.model.module(data.to(self.device))
                     # out = self.model.inference(data.to(self.device))
                 else:
-                    out = self.model.inference(data.to(self.device))
+                    data_t = copy.deepcopy(data)
+
+                    out = self.model.inference(data_t.to(self.device))  # 这里面会改data的值,用deep copy很成功
+                    out_all_dic, aux, aux_ = self.model(data.to(self.device))
+                    for key in out_all_dic.keys():
+                        out_all_dic[key] = out_all_dic[key].cpu().numpy()
+
                 dim_out = len(out.shape)
 
                 # debug
                 out_dict[out_cnt] = out.cpu().numpy()
                 out_cnt += 1
+                out_all_dic_seq_id = {}
 
                 pred_y = out.unsqueeze(dim_out).view((batch_size, k, horizon, 2)).cpu().numpy()
 
@@ -288,6 +314,26 @@ class TNTTrainer(Trainer):
                     gt_trajectories[seq_id] = self.convert_coord(gt[batch_id], origs[batch_id], rots[batch_id]) \
                         if convert_coordinate else gt[batch_id]
 
+                    out_all_dic_seq_id[seq_id] = {}
+                    for key in out_all_dic.keys():
+                        out_all_dic_seq_id[seq_id][key] = out_all_dic[key][batch_id]  # 把batch size 拆出来
+
+
+                # 搞一个batch 画一次图
+                if plot:
+                    for batch_id in range(batch_size):
+                        seq_id = seq_ids[batch_id]
+                        import pandas as pd
+                        raw_path = "/home/zhuhe/Dataset/interm_data_vis/train_intermediate/raw/features_" + str(
+                            seq_id) + ".pkl"
+                        raw_data = pd.read_pickle(raw_path)
+                        from core.util.preprocessor.argoverse_preprocess_v2 import visualize_data_zly
+                        temp_keys = raw_data.keys()
+                        data_restore = {}
+                        for key in temp_keys:
+                            data_restore[key] = raw_data[key].values[0]
+                        visualize_data_zly(data_restore, seq_id, forecasted_trajectories[seq_id], out_all_dic_seq_id[seq_id])
+
         # compute the metric
         if compute_metric:
             metric_results = get_displacement_errors_and_miss_rate(
@@ -298,15 +344,28 @@ class TNTTrainer(Trainer):
                 miss_threshold
             )
             print("[TNTTrainer]: The test result: {};".format(metric_results))
-
+        # todo:画图
         # plot the result
-        if plot:
-            fig, ax = plt.subplots()
-            for key in forecasted_trajectories.keys():
-                ax.set_xlim(-15, 15)
-                show_pred_and_gt(ax, gt_trajectories[key], forecasted_trajectories[key])
-                plt.pause(3)
-                ax.clear()
+        # if plot:
+        #     # fig, ax = plt.subplots()
+        #     # for key in forecasted_trajectories.keys():
+        #     #     ax.set_xlim(-15, 15)
+        #     #     show_pred_and_gt(ax, gt_trajectories[key], forecasted_trajectories[key])
+        #     #     plt.pause(3)
+        #     #     ax.clear()
+        #     for batch_id in range(batch_size):
+        #         seq_id = seq_ids[batch_id]
+        #         import pandas as pd
+        #         raw_path = "/home/zhuhe/Dataset/interm_data_small/train_intermediate/raw/features_" + str(seq_id) + ".pkl"
+        #         raw_data = pd.read_pickle(raw_path)
+        #         from core.util.preprocessor.argoverse_preprocess_v2 import visualize_data_zly
+        #         temp_keys = raw_data.keys()
+        #         data_restore = {}
+        #         for key in temp_keys:
+        #
+        #             data_restore[key] = raw_data[key].values[0]
+        #         visualize_data_zly(data_restore, seq_id, forecasted_trajectories[seq_id], out_all_dic)
+
 
         # todo: save the output in argoverse format
         if save_pred:

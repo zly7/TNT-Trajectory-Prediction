@@ -85,7 +85,7 @@ class SelfAttentionFCLayer(nn.Module):
             mask = torch.zeros_like(X, dtype=torch.bool)
             for batch_id, cnt in enumerate(valid_len):
                 cnt = int(cnt.detach().cpu().numpy())
-                mask[batch_id, :, cnt:] = True
+                mask[batch_id, :, cnt:] = True  # 这里的mask 2次是mask出来一个正方形。并且解决了场景中车辆不统一的事情
                 mask[batch_id, cnt:] = True
             X_masked = X.masked_fill(mask, -1e12)
             return nn.functional.softmax(X_masked, dim=-1) * (1 - mask.float())

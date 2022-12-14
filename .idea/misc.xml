@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.9 (pytorch)" project-jdk-type="Python SDK" />
+  <component name="UnattendedHostPersistenceState">
+    <option name="openedFilesInfos">
+      <list>
+        <OpenedFileInfo>
+          <option name="caretOffset" value="1686" />
+          <option name="fileUrl" value="file://$PROJECT_DIR$/core/trainer/tnt_trainer.py" />
+        </OpenedFileInfo>
+        <OpenedFileInfo>
+          <option name="caretOffset" value="2052" />
+          <option name="fileUrl" value="file://$PROJECT_DIR$/argoverse/map_representation/map_api.py" />
+        </OpenedFileInfo>
+        <OpenedFileInfo>
+          <option name="caretOffset" value="10379" />
+          <option name="fileUrl" value="file://$PROJECT_DIR$/core/util/preprocessor/argoverse_preprocess_v2.py" />
+        </OpenedFileInfo>
+      </list>
+    </option>
+  </component>
+</project>

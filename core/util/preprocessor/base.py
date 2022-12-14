@@ -115,7 +115,7 @@ class Preprocessor(Dataset):
         return np.stack(np.meshgrid(x, x), -1).reshape(-1, 2)
 
     # implement a candidate sampling with equal distance;
-    def lane_candidate_sampling(self, centerline_list, orig, distance=0.5, viz=False):
+    def lane_candidate_sampling(self, centerline_list, orig, distance=0.5, viz=False,seq_id = -1):
         """the input are list of lines, each line containing"""
         candidates = []
         for lane_id, line in enumerate(centerline_list):
@@ -136,6 +136,7 @@ class Preprocessor(Dataset):
             plt.ylabel("Map Y")
             plt.axis("off")
             plt.title("No. of lane candidates = {}; No. of target candidates = {};".format(len(centerline_list), len(candidates)))
+            plt.savefig("/home/zhuhe/TNT-Trajectory-Prediction/run/visualize/" + f"{seq_id}_lane_candidate_sampling.png")
             plt.show()
 
         return candidates

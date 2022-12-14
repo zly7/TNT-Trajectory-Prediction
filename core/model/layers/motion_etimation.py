@@ -53,7 +53,7 @@ class MotionEstimation(nn.Module):
             input = torch.cat([feat_in.repeat(1, M, 1), loc_in], dim=2)
         else:
             # targt ground truth
-            input = torch.cat([feat_in, loc_in], dim=-1)
+            input = torch.cat([feat_in, loc_in], dim=-1)  # 这个轨迹补全有点离谱，我有结束点的坐标和global的环境信息，
 
         return self.traj_pred(input)
 

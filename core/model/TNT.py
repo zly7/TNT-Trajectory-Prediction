@@ -114,27 +114,28 @@ class TNT(nn.Module):
         """
         n = int(data.candidate_len_max[0].cpu().numpy())
 
-        target_candidate = data.candidate.view(-1, n, 2)   # [batch_size, N, 2]
+        target_candidate = data.candidate.view(-1, n, 2)   # [batch_size, N, 2] # 这玩意居然是传进来的
         batch_size, _, _ = target_candidate.size()
         candidate_mask = data.candidate_mask.view(-1, n)
-
+        #global_feat 就是只取了一个值出来
         # feature encoding
         global_feat, aux_out, aux_gt = self.backbone(data)             # [batch_size, time_step_len, global_graph_width]
-        target_feat = global_feat[:, 0].unsqueeze(1)
-
+        target_feat = global_feat[:, 0].unsqueeze(1)  # aux_get 和 aux_gt 是那个补全任务，暂时可以不管，但是是每个场景有同一个这样的任务
+        # 上面这个是编码环境变量，相当于这个场景的车和路加起来可能有283个，target_feature直接取得每个场景第一个
         # predict prob. for each target candidate, and corresponding offest
+        # temp = target_feat.cpu().detach().numpy()确实修改了
         target_prob, offset = self.target_pred_layer(target_feat, target_candidate, candidate_mask)
-
+        #offset 这里是[batch_size, 5839, 2],2是xy
         # predict the trajectory given the target gt
-        target_gt = data.target_gt.view(-1, 1, 2)
-        traj_with_gt = self.motion_estimator(target_feat, target_gt)
+        target_gt = data.target_gt.view(-1, 1, 2)  # 这个是实际的位置
+        traj_with_gt = self.motion_estimator(target_feat, target_gt)  # 轨迹预测这里是相当于我直接用的真实数据去输出的
 
         # predict the trajectories for the M most-likely predicted target, and the score
-        _, indices = target_prob.topk(self.m, dim=1)
+        _, indices = target_prob.topk(self.m, dim=1)  # 这里就选了50个
         batch_idx = torch.vstack([torch.arange(0, batch_size, device=self.device) for _ in range(self.m)]).T
         target_pred_se, offset_pred_se = target_candidate[batch_idx, indices], offset[batch_idx, indices]
 
-        trajs = self.motion_estimator(target_feat, target_pred_se + offset_pred_se)
+        trajs = self.motion_estimator(target_feat, target_pred_se + offset_pred_se)  # 这里相当于我是真正在预测我挑选出的点
 
         score = self.traj_score_layer(target_feat, trajs)
 
@@ -143,7 +144,8 @@ class TNT(nn.Module):
             "offset": offset,
             "traj_with_gt": traj_with_gt,
             "traj": trajs,
-            "score": score
+            "score": score,
+            "target_pred_se": target_pred_se,
         }, aux_out, aux_gt
 
     def inference(self, data):
@@ -174,7 +176,7 @@ class TNT(nn.Module):
         # score the predicted trajectory and select the top k trajectory
         score = self.traj_score_layer(target_feat, traj_pred)
 
-        return self.traj_selection(traj_pred, score).view(batch_size, self.k, self.horizon, 2)
+        return self.traj_selection(traj_pred, score).view(batch_size, self.k, self.horizon, 2)  # 筛选6条轨迹
 
     def candidate_sampling(self, data):
         """

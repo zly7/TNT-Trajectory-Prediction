@@ -46,18 +46,18 @@ class SubGraph(nn.Module):
         x = sub_data.x
         sub_data.cluster = sub_data.cluster.long()
         sub_data.edge_index = sub_data.edge_index.long()
-
+        # temp_module_list = self.layer_seq.named_modules()
         for name, layer in self.layer_seq.named_modules():
+            print(name)
             if isinstance(layer, MLP):
-                x = layer(x)
+                x = layer(x)  # MLP 投影
                 sub_data.x = x
-                agg_data = max_pool(sub_data.cluster, sub_data)
-
-                x = torch.cat([x, agg_data.x[sub_data.cluster]], dim=-1)
+                agg_data = max_pool(sub_data.cluster, sub_data)  # 由torch_geometric 库提供
+                x = torch.cat([x, agg_data.x[sub_data.cluster]], dim=-1)  # 连接操作
 
         x = self.linear(x)
         sub_data.x = x
-        out_data = max_pool(sub_data.cluster, sub_data)
+        out_data = max_pool(sub_data.cluster, sub_data)  # 最后这步函数是
         x = out_data.x
 
         assert x.shape[0] % int(sub_data.time_step_len[0]) == 0

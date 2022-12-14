@@ -18,6 +18,7 @@ import warnings
 # import torch
 from torch.utils.data import Dataset, DataLoader
 
+sys.path.append("/home/zhuhe/TNT-Trajectory-Prediction")
 from argoverse.data_loading.argoverse_forecasting_loader import ArgoverseForecastingLoader
 from argoverse.map_representation.map_api import ArgoverseMap
 from argoverse.visualization.visualize_sequences import viz_sequence
@@ -28,7 +29,7 @@ from core.util.cubic_spline import Spline2D
 
 warnings.filterwarnings("ignore")
 
-RESCALE_LENGTH = 1.0    # the rescale length th turn the lane vector into equal distance pieces
+RESCALE_LENGTH = 1.0  # the rescale length th turn the lane vector into equal distance pieces
 
 
 class ArgoversePreprocessor(Preprocessor):
@@ -50,7 +51,9 @@ class ArgoversePreprocessor(Preprocessor):
         self.normalized = normalized
 
         self.am = ArgoverseMap()
-        self.loader = ArgoverseForecastingLoader(pjoin(self.root_dir, self.split+"_obs" if split == "test" else split))
+        self.loader = ArgoverseForecastingLoader(  # 下面这个是自带的
+            # pjoin(self.root_dir, self.split + "_obs" if split == "test" else split))
+            pjoin(self.root_dir, self.split))
 
         self.save_dir = save_dir
 
@@ -63,16 +66,17 @@ class ArgoversePreprocessor(Preprocessor):
         df = copy.deepcopy(seq.seq_df)
         return self.process_and_save(df, seq_id=seq_f_name, dir_=self.save_dir)
 
-    def process(self, dataframe: pd.DataFrame,  seq_id, map_feat=True):
-        data = self.read_argo_data(dataframe)
-        data = self.get_obj_feats(data)
+    def process(self, dataframe: pd.DataFrame, seq_id, map_feat=True):
+        data = self.read_argo_data(dataframe)  # 这里dataframe是直接加入的原始数据
+        data = self.get_obj_feats(data, seq_id)
 
         data['graph'] = self.get_lane_graph(data)
         data['seq_id'] = seq_id
         # visualization for debug purpose
-        # self.visualize_data(data)
+        # self.visualize_data(data, seq_id)  # 这里画图
         return pd.DataFrame(
-            [[data[key] for key in data.keys()]],
+            [[data[key] for key in data.keys()]],  # 这里原本是字典，然后变成一个series,这里是完全强制转化成series
+            # pkl是读取速度和写入速度都不错的一种格式，有机会关注下jay文件
             columns=[key for key in data.keys()]
         )
 
@@ -93,10 +97,10 @@ class ArgoversePreprocessor(Preprocessor):
             df.X.to_numpy().reshape(-1, 1),
             df.Y.to_numpy().reshape(-1, 1)), 1)
 
-        steps = [mapping[x] for x in df['TIMESTAMP'].values]
+        steps = [mapping[x] for x in df['TIMESTAMP'].values]  # 把时间信息和step进行一个对应
         steps = np.asarray(steps, np.int64)
 
-        objs = df.groupby(['TRACK_ID', 'OBJECT_TYPE']).groups
+        objs = df.groupby(['TRACK_ID', 'OBJECT_TYPE']).groups  # 这个是sql的group by
         keys = list(objs.keys())
         obj_type = [x[1] for x in keys]
 
@@ -115,19 +119,19 @@ class ArgoversePreprocessor(Preprocessor):
 
         data = dict()
         data['city'] = city
-        data['trajs'] = [agt_traj] + ctx_trajs
+        data['trajs'] = [agt_traj] + ctx_trajs  # 这个是有多少车就能搞出多少个
         data['steps'] = [agt_step] + ctx_steps
         return data
 
-    def get_obj_feats(self, data):
+    def get_obj_feats(self, data, seq_id):  # data里面的step是存在了多少场景
         # get the origin and compute the oritentation of the target agent
-        orig = data['trajs'][0][self.obs_horizon-1].copy().astype(np.float32)
+        orig = data['trajs'][0][self.obs_horizon - 1].copy().astype(np.float32)
 
         # comput the rotation matrix
         if self.normalized:
-            pre, conf = self.am.get_lane_direction(data['trajs'][0][self.obs_horizon-1], data['city'])
+            pre, conf = self.am.get_lane_direction(data['trajs'][0][self.obs_horizon - 1], data['city'])
             if conf <= 0.1:
-                pre = (orig - data['trajs'][0][self.obs_horizon-4]) / 2.0
+                pre = (orig - data['trajs'][0][self.obs_horizon - 4]) / 2.0
             theta = - np.arctan2(pre[1], pre[0]) + np.pi / 2
             rot = np.asarray([
                 [np.cos(theta), -np.sin(theta)],
@@ -141,31 +145,31 @@ class ArgoversePreprocessor(Preprocessor):
 
         # get the target candidates and candidate gt
         agt_traj_obs = data['trajs'][0][0: self.obs_horizon].copy().astype(np.float32)
-        agt_traj_fut = data['trajs'][0][self.obs_horizon:self.obs_horizon+self.pred_horizon].copy().astype(np.float32)
-        ctr_line_candts = self.am.get_candidate_centerlines_for_traj(agt_traj_obs, data['city'], viz=False)
-
+        agt_traj_fut = data['trajs'][0][self.obs_horizon:self.obs_horizon + self.pred_horizon].copy().astype(np.float32)
+        ctr_line_candts = self.am.get_candidate_centerlines_for_traj(agt_traj_obs, data['city'], viz=False, seq_id=seq_id)
+        # 上面这个是API提供的道路中心获取方式，一般就是7,8条list，每个list很长
         # rotate the center lines and find the reference center line
         agt_traj_fut = np.matmul(rot, (agt_traj_fut - orig.reshape(-1, 2)).T).T
         for i, _ in enumerate(ctr_line_candts):
             ctr_line_candts[i] = np.matmul(rot, (ctr_line_candts[i] - orig.reshape(-1, 2)).T).T
 
-        tar_candts = self.lane_candidate_sampling(ctr_line_candts, [0, 0], viz=False)
+        tar_candts = self.lane_candidate_sampling(ctr_line_candts, [0, 0], viz=False, seq_id=seq_id)
 
         if self.split == "test":
             tar_candts_gt, tar_offse_gt = np.zeros((tar_candts.shape[0], 1)), np.zeros((1, 2))
             splines, ref_idx = None, None
         else:
             splines, ref_idx = self.get_ref_centerline(ctr_line_candts, agt_traj_fut)
-            tar_candts_gt, tar_offse_gt = self.get_candidate_gt(tar_candts, agt_traj_fut[-1])
+            tar_candts_gt, tar_offse_gt = self.get_candidate_gt(tar_candts, agt_traj_fut[-1])  # 这里是做一个相对位置
 
         # self.plot_target_candidates(ctr_line_candts, agt_traj_obs, agt_traj_fut, tar_candts)
-        # if not np.all(offse_gt < self.LANE_WIDTH[data['city']]):
+        # if not np.all(tar_offse_gt < self.LANE_WIDTH[data['city']]):
         #     self.plot_target_candidates(ctr_line_candts, agt_traj_obs, agt_traj_fut, tar_candts)
 
         feats, ctrs, has_obss, gt_preds, has_preds = [], [], [], [], []
         x_min, x_max, y_min, y_max = -self.obs_range, self.obs_range, -self.obs_range, self.obs_range
         for traj, step in zip(data['trajs'], data['steps']):
-            if self.obs_horizon-1 not in step:
+            if self.obs_horizon - 1 not in step:
                 continue
 
             # normalize and rotate
@@ -177,7 +181,7 @@ class ArgoversePreprocessor(Preprocessor):
             future_mask = np.logical_and(step >= self.obs_horizon, step < self.obs_horizon + self.pred_horizon)
             post_step = step[future_mask] - self.obs_horizon
             post_traj = traj_nd[future_mask]
-            gt_pred[post_step] = post_traj
+            gt_pred[post_step] = post_traj  # 具体的预测的路径
             has_pred[post_step] = True
 
             # colect the observation
@@ -207,7 +211,7 @@ class ArgoversePreprocessor(Preprocessor):
             if feat[-1, 0] < x_min or feat[-1, 0] > x_max or feat[-1, 1] < y_min or feat[-1, 1] > y_max:
                 continue
 
-            feats.append(feat)                  # displacement vectors
+            feats.append(feat)  # displacement vectors
             has_obss.append(has_obs)
             gt_preds.append(gt_pred)
             has_preds.append(has_pred)
@@ -242,8 +246,8 @@ class ArgoversePreprocessor(Preprocessor):
         data['gt_candts'] = tar_candts_gt
         data['gt_tar_offset'] = tar_offse_gt
 
-        data['ref_ctr_lines'] = splines         # the reference candidate centerlines Spline for prediction
-        data['ref_cetr_idx'] = ref_idx          # the idx of the closest reference centerlines
+        data['ref_ctr_lines'] = splines  # the reference candidate centerlines Spline for prediction
+        data['ref_cetr_idx'] = ref_idx  # the idx of the closest reference centerlines
         return data
 
     def get_lane_graph(self, data):
@@ -311,17 +315,18 @@ class ArgoversePreprocessor(Preprocessor):
 
         return graph
 
-    def visualize_data(self, data):
+    def visualize_data(self, data, seq_id):
         """
         visualize the extracted data, and exam the data
         """
-        fig = plt.figure(0, figsize=(8, 7))
+        fig = plt.figure(0, figsize=(18, 16))
         fig.clear()
 
         # visualize the centerlines
         lines_ctrs = data['graph']['ctrs']
         lines_feats = data['graph']['feats']
         lane_idcs = data['graph']['lane_idcs']
+        # plot道路信息
         for i in np.unique(lane_idcs):
             line_ctr = lines_ctrs[lane_idcs == i]
             line_feat = lines_feats[lane_idcs == i]
@@ -331,7 +336,7 @@ class ArgoversePreprocessor(Preprocessor):
             visualize_centerline(line)
 
         # visualize the trajectory
-        trajs = data['feats'][:, :, :2]
+        trajs = data['feats'][:, :, :2]  # 这里是取到xy，第三个轴是z轴
         has_obss = data['has_obss']
         preds = data['gt_preds']
         has_preds = data['has_preds']
@@ -341,6 +346,7 @@ class ArgoversePreprocessor(Preprocessor):
         plt.xlabel("Map X")
         plt.ylabel("Map Y")
         plt.axis("off")
+        plt.savefig("../../../run/visualize/" + f"{seq_id}_sample.png")
         plt.show()
         # plt.show(block=False)
         # plt.pause(0.5)
@@ -376,7 +382,7 @@ class ArgoversePreprocessor(Preprocessor):
                 plt.plot(xy[:, 0], xy[:, 1], "--", color="r", alpha=0.7, linewidth=1, zorder=10)
             else:
                 plt.plot(xy[:, 0], xy[:, 1], "--", color="b", alpha=0.5, linewidth=1, zorder=10)
-
+        # 上面不知道有什么用
         self.plot_traj(obs, pred)
 
         plt.xlabel("Map X")
@@ -389,17 +395,19 @@ class ArgoversePreprocessor(Preprocessor):
     def plot_traj(self, obs, pred, traj_id=None):
         assert len(obs) != 0, "ERROR: The input trajectory is empty!"
         traj_na = "t{}".format(traj_id) if traj_id else "traj"
+        if traj_id != 0:  # 只打印agent的路径
+            return
         obj_type = "AGENT" if traj_id == 0 else "OTHERS"
 
-        plt.plot(obs[:, 0], obs[:, 1], color=self.COLOR_DICT[obj_type], alpha=1, linewidth=1, zorder=15)
-        plt.plot(pred[:, 0], pred[:, 1], "d-", color=self.COLOR_DICT[obj_type], alpha=1, linewidth=1, zorder=15)
+        plt.plot(obs[:, 0], obs[:, 1], color=self.COLOR_DICT[obj_type], alpha=1, linewidth=2, zorder=15)
+        plt.plot(pred[:, 0], pred[:, 1], color='b', alpha=1, linewidth=2, zorder=15)
 
-        plt.text(obs[0, 0], obs[0, 1], "{}_s".format(traj_na))
-
-        if len(pred) == 0:
-            plt.text(obs[-1, 0], obs[-1, 1], "{}_e".format(traj_na))
-        else:
-            plt.text(pred[-1, 0], pred[-1, 1], "{}_e".format(traj_na))
+        # plt.text(obs[0, 0], obs[0, 1], "{}_s".format(traj_na))
+        #  这些打的是路旁边的标签，先注释掉
+        # if len(pred) == 0:
+        #     plt.text(obs[-1, 0], obs[-1, 1], "{}_e".format(traj_na))
+        # else:
+        #     plt.text(pred[-1, 0], pred[-1, 1], "{}_e".format(traj_na))
 
 
 def ref_copy(data):
@@ -414,31 +422,90 @@ def ref_copy(data):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-r", "--root", type=str, default="../dataset")
-    parser.add_argument("-d", "--dest", type=str, default="../dataset")
-    parser.add_argument("-s", "--small", action='store_true', default=False)
-    args = parser.parse_args()
-
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("-r", "--root", type=str, default="../dataset")
+    # parser.add_argument("-d", "--dest", type=str, default="../dataset")
+    # parser.add_argument("-s", "--small", action='store_true', default=False)
+    # args = parser.parse_args()
+    args = {
+        # 'root': "/home/zhuhe/Dataset/data",
+        "root": "/home/zhuhe/Dataset/data_carry",  # 专门挑选的场景
+        'dest': "/home/zhuhe/Dataset",
+        'small': False
+    }
+    # 这里核心是处理成了pkl,并且确定是一个feature一个data
     # args.root = "/home/jb/projects/Code/trajectory-prediction/TNT-Trajectory-Predition/dataset"
-    raw_dir = os.path.join(args.root, "raw_data")
-    interm_dir = os.path.join(args.dest, "interm_data" if not args.small else "interm_data_small")
+    # raw_dir = os.path.join(args.root, "raw_data")#我这边可以不要这行
+    raw_dir = args['root']
+    interm_dir = os.path.join(args['dest'], "interm_data_vis" if not args['small'] else "interm_data_small")
 
-    for split in ["train", "val", "test"]:
+    # for split in ["train", "val", "test"]:
+    for split in ["train"]:
         # construct the preprocessor and dataloader
         argoverse_processor = ArgoversePreprocessor(root_dir=raw_dir, split=split, save_dir=interm_dir)
         loader = DataLoader(argoverse_processor,
-                            batch_size=1 if sys.gettrace() else 16,     # 1 batch in debug mode
-                            num_workers=0 if sys.gettrace() else 16,    # use only 0 worker in debug mode
+                            batch_size=1 if sys.gettrace() else 1,  # 1 batch in debug mode
+                            num_workers=0 if sys.gettrace() else 0,  # use only 0 worker in debug mode
                             shuffle=False,
                             pin_memory=False,
                             drop_last=False)
 
         for i, data in enumerate(tqdm(loader)):
-            if args.small:
-                if split == "train" and i >= 200:
+            if args['small']:
+                if split == "train" and i >= 50000:  # 注意这个数字其实要和上面的batch数字对应，开多worker优化很少
                     break
-                elif split == "val" and i >= 50:
+                elif split == "val" and i >= 10000:
                     break
-                elif split == "test" and i >= 50:
+                elif split == "test" and i >= 10000:
                     break
+            # 打几条出来看看
+            else:
+                if split != "train" or i >= 1000:
+                    break
+    # gateway IDE 如果把画图打开，他就想发送图片
+
+def visualize_data_zly(data, seq_id, pred_y:list, model_out): # todo:改进这个函数
+    """
+    提取函数
+    """
+    def plot_traj(obs, pred, traj_id=None):
+        assert len(obs) != 0, "ERROR: The input trajectory is empty!"
+        traj_na = "t{}".format(traj_id) if traj_id else "traj"
+        if traj_id != 0:
+            return
+        obj_type = "AGENT" if traj_id == 0 else "OTHERS"
+
+        plt.plot(obs[:, 0], obs[:, 1], color='r', alpha=1, linewidth=2, zorder=15)
+        plt.plot(pred[:, 0], pred[:, 1], color='b', alpha=1, linewidth=2, zorder=15)
+
+    fig = plt.figure(0, figsize=(18, 16))
+    fig.clear()
+
+    # visualize the centerlines
+    lines_ctrs = data['graph']['ctrs']
+    lines_feats = data['graph']['feats']
+    lane_idcs = data['graph']['lane_idcs']
+    # plot道路信息
+    for i in np.unique(lane_idcs):
+        line_ctr = lines_ctrs[lane_idcs == i]
+        line_feat = lines_feats[lane_idcs == i]
+        line_str = (2.0 * line_ctr - line_feat) / 2.0
+        line_end = (2.0 * line_ctr[-1, :] + line_feat[-1, :]) / 2.0
+        line = np.vstack([line_str, line_end.reshape(-1, 2)])
+        visualize_centerline(line)
+
+    # visualize the trajectory
+    trajs = data['feats'][:, :, :2]  # 这里是取到xy，第三个轴是z轴
+    has_obss = data['has_obss']
+    preds = data['gt_preds']
+    has_preds = data['has_preds']
+    for i, [traj, has_obs, pred, has_pred] in enumerate(zip(trajs, has_obss, preds, has_preds)):
+        plot_traj(traj[has_obs], pred[has_pred], i)
+    for pred in pred_y:
+        plt.plot(pred[:, 0], pred[:, 1], color='g', alpha=1, linewidth=2, zorder=15)  # 画预测路径
+    plt.scatter(model_out["target_pred_se"][:, 0], model_out["target_pred_se"][:, 1], color='purple')  # 画选取的点
+    plt.xlabel("Map X")
+    plt.ylabel("Map Y")
+    plt.axis("off")
+    plt.savefig("/home/zhuhe/TNT-Trajectory-Prediction/run/vis2/" + f"{seq_id}_forecast_result.png")
+    plt.close()

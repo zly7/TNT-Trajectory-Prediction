@@ -37,7 +37,8 @@ class Trainer(object):
                  enable_log: bool = False,
                  log_freq: int = 2,
                  save_folder: str = "",
-                 verbose: bool = True
+                 verbose: bool = True,
+                 on_memory: bool = False,
                  ):
         """
         :param trainset: train dataset
@@ -73,7 +74,7 @@ class Trainer(object):
         self.testset = testset
         self.batch_size = batch_size
         # self.loader = loader if not self.multi_gpu else DataListLoader
-        self.loader = loader
+        self.loader = loader  # 这个就是库
         # print("[Debug]: using {} to load data".format(self.loader))
 
         if self.multi_gpu:
@@ -111,12 +112,12 @@ class Trainer(object):
                 self.trainset,
                 batch_size=self.batch_size,
                 num_workers=num_workers,
-                pin_memory=True,
+                pin_memory=on_memory,
                 shuffle=True
             )
-            self.eval_loader = self.loader(self.evalset, batch_size=self.batch_size, num_workers=num_workers)
+            self.eval_loader = self.loader(self.evalset, batch_size=self.batch_size, num_workers=num_workers, pin_memory=on_memory)
             # self.eval_loader = self.loader(self.evalset, batch_size=self.batch_size)
-            self.test_loader = self.loader(self.testset, batch_size=self.batch_size, num_workers=num_workers)
+            self.test_loader = self.loader(self.testset, batch_size=self.batch_size, num_workers=num_workers, pin_memory=on_memory)
             # self.test_loader = self.loader(self.testset, batch_size=self.batch_size)
 
         # model
@@ -148,7 +149,7 @@ class Trainer(object):
     def train(self, epoch):
         gc.collect()
 
-        self.model.train()
+        self.model.train()  # 这个是设置模型的训练模式
         return self.iteration(epoch, self.train_loader)
 
     def eval(self, epoch):
