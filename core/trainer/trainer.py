@@ -34,7 +34,7 @@ class Trainer(object):
                  with_cuda: bool = False,
                  cuda_device=None,
                  multi_gpu: bool = False,
-                 enable_log: bool = False,
+                 enable_log: bool = True,
                  log_freq: int = 2,
                  save_folder: str = "",
                  verbose: bool = True,

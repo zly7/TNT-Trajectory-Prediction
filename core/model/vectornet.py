@@ -19,7 +19,7 @@ from core.model.layers.subgraph import SubGraph
 from core.dataloader.dataset import GraphDataset, GraphData
 # from core.model.backbone.vectornet import VectorNetBackbone
 from core.model.layers.basic_module import MLP
-from core.model.backbone.vectornet_v2 import VectorNetBackbone
+from core.model.backbone.vectornet_v3 import VectorNetBackbone
 from core.loss import VectorLoss
 from core.dataloader.argoverse_loader import Argoverse
 
@@ -83,7 +83,6 @@ class VectorNet(nn.Module):
 
     def inference(self, data):
         batch_size = data.num_graphs
-
         pred_traj = self.forward(data)["pred"].view((batch_size, self.k, self.horizon, 2)).cumsum(2)
 
         return pred_traj

@@ -54,7 +54,7 @@ def test(args):
         model_path=args.resume_model if hasattr(args, "resume_model") and args.resume_model else None
     )
 
-    trainer.test(miss_threshold=2.0, compute_metric=False,save_pred=False, convert_coordinate=False, plot=True)
+    trainer.test(miss_threshold=2.0, compute_metric=True,save_pred=False, convert_coordinate=False, plot=False)
     # convert_coordinate代表是否要转化成绝对坐标
 
 class Args:

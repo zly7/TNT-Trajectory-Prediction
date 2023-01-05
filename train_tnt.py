@@ -20,9 +20,8 @@ def train(gpu, args):
     :param args:
     :return:
     """
-    train_set = ArgoverseInMemv2(pjoin(args.data_root, "train_intermediate"), max_load_num=100).shuffle()
-    print("train set over")
-    eval_set = ArgoverseInMemv2(pjoin(args.data_root, "val_intermediate"),max_load_num=100)
+    train_set = ArgoverseInMemv2(pjoin(args.data_root, "train_intermediate"), max_load_num=3000).shuffle()
+    eval_set = ArgoverseInMemv2(pjoin(args.data_root, "val_intermediate"),max_load_num=600)
 
     # init output dir
     time_stamp = datetime.now().strftime("%m-%d-%H-%M")
@@ -83,35 +82,90 @@ def train(gpu, args):
 
     trainer.save_model("final")
 
+# 下面的是朱赫那边的参数
+# class Args:
+#     def __init__(self):
+#         self.data_root = "../Dataset/interm_data_small"
+#         self.output_dir = "run/tnt/"
+#         self.num_glayer = 1  # global layer的层数
+#         self.aux_loss = True
+#         self.batch_size = 64  # 128 4G显存要爆掉
+#         self.n_epoch = 1000
+#         # self.num_workers = 16  # 这个是控制 CPUloader的数量
+#         self.num_workers = 0  # 0代表主线程去做
+#         self.with_cuda = True
+#         # self.multi_gpu = "torch.distributed.launch"
+#         self.multi_gpu = False
+#         self.local_rank = 0
+#         self.log_freq = 2
+#         # self.on_memory = True  # 这个指标就没用
+#         self.on_memory = False
+#         # self.lr = 0.0012
+#         self.lr = 0.006
+#         self.warmup_epoch = 30
+#         self.lr_update_freq = 200
+#         # self.lr_decay_rate = 0.3
+#         self.lr_decay_rate = 0.1
+#         self.adam_weight_decay = 0.001 # 这个是每轮衰减多少
+#         self.adam_beta1 = 0.9
+#         self.adam_beta2 = 0.999  # 这些接口都是开的很好的
+#         # self.model_path = "/home/zhuhe/TNT-Trajectory-Prediction/run/tnt/TNT_bestmodel/TNT/best_TNT.pth"
+#         self.global_graph_width = 96
 
+# 下面的是原来的默认的参数
 class Args:
     def __init__(self):
-        self.data_root = "../Dataset/interm_data_small"
+        self.data_root = "../Dataset/interm_data"
         self.output_dir = "run/tnt/"
         self.num_glayer = 1  # global layer的层数
         self.aux_loss = True
-        self.batch_size = 64  # 128 4G显存要爆掉
-        self.n_epoch = 1000
-        # self.num_workers = 16  # 这个是控制 CPUloader的数量
-        self.num_workers = 0  # 0代表主线程去做
+        self.batch_size = 256
+        self.n_epoch = 100
+        self.num_workers = 2
         self.with_cuda = True
         # self.multi_gpu = "torch.distributed.launch"
         self.multi_gpu = False
         self.local_rank = 0
         self.log_freq = 2
-        # self.on_memory = True  # 这个指标就没用
-        self.on_memory = False
-        # self.lr = 0.0012
-        self.lr = 0.006
-        self.warmup_epoch = 30
-        self.lr_update_freq = 200
-        # self.lr_decay_rate = 0.3
-        self.lr_decay_rate = 0.1
-        self.adam_weight_decay = 0.001 # 这个是每轮衰减多少
+        self.on_memory = True
+        self.lr = 0.001
+        self.warmup_epoch = 20
+        self.lr_update_freq = 5
+        self.lr_decay_rate = 0.9
+        self.adam_weight_decay = 0.01 # 这个是每轮衰减多少
         self.adam_beta1 = 0.9
         self.adam_beta2 = 0.999  # 这些接口都是开的很好的
         # self.model_path = "/home/zhuhe/TNT-Trajectory-Prediction/run/tnt/TNT_bestmodel/TNT/best_TNT.pth"
-        self.global_graph_width = 96
+        self.global_graph_width = 64
+
+# class Args:
+#     def __init__(self):
+#         self.data_root = "../Dataset/interm_data"
+#         self.output_dir = "run/tnt/"
+#         self.num_glayer = 1  # global layer的层数
+#         self.aux_loss = True
+#         self.batch_size = 256  
+#         self.n_epoch = 100
+#         # self.num_workers = 16  # 这个是控制 CPUloader的数量
+#         self.num_workers = 16  # 0代表主线程去做
+#         self.with_cuda = True
+#         # self.multi_gpu = "torch.distributed.launch"
+#         self.multi_gpu = False
+#         # self.multi_gpu = True
+#         self.local_rank = 0
+#         self.log_freq = 2
+#         # self.on_memory = True  # 这个指标就没用
+#         self.on_memory = False
+#         # self.lr = 0.0012
+#         self.lr = 0.006
+#         self.warmup_epoch = 30
+#         self.lr_update_freq = 5
+#         self.lr_decay_rate = 0.9
+#         self.adam_weight_decay = 0.01 # 这个是每轮衰减多少
+#         self.adam_beta1 = 0.9
+#         self.adam_beta2 = 0.999  # 这些接口都是开的很好的
+#         # self.model_path = "/home/zhuhe/TNT-Trajectory-Prediction/run/tnt/TNT_bestmodel/TNT/best_TNT.pth"
+#         self.global_graph_width = 64
 
 
 if __name__ == "__main__":

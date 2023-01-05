@@ -48,7 +48,6 @@ class SubGraph(nn.Module):
         sub_data.edge_index = sub_data.edge_index.long()
         # temp_module_list = self.layer_seq.named_modules()
         for name, layer in self.layer_seq.named_modules():
-            print(name)
             if isinstance(layer, MLP):
                 x = layer(x)  # MLP 投影
                 sub_data.x = x

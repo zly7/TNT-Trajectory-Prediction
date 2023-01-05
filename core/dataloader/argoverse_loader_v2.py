@@ -59,7 +59,7 @@ class GraphData(Data):
 
 # dataset loader which loads data into memory
 class ArgoverseInMem(InMemoryDataset):  # pytorch的dataset显然提供了一个从并行加载数据的接口
-    def __init__(self, root, transform=None, pre_transform=None, max_load_num=7000, specific_index = -1):
+    def __init__(self, root, transform=None, pre_transform=None, max_load_num=300000, specific_index = -1):
         # self.seq_id_list = []
         self.max_load_num = max_load_num
         super(ArgoverseInMem, self).__init__(root, transform, pre_transform)
@@ -229,6 +229,7 @@ class ArgoverseInMem(InMemoryDataset):  # pytorch的dataset显然提供了一个
     def _get_y(data_seq):
         traj_obs = data_seq['feats'].values[0][0]
         traj_fut = data_seq['gt_preds'].values[0][0]
+        # 下面这个真的是一个很重要的点，就是我的每一步的预测是做上一步的差值
         offset_fut = np.vstack([traj_fut[0, :] - traj_obs[-1, :2], traj_fut[1:, :] - traj_fut[:-1, :]])
         return offset_fut.reshape(-1).astype(np.float32)
 

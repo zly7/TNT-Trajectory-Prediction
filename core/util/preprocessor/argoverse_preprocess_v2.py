@@ -18,7 +18,8 @@ import warnings
 # import torch
 from torch.utils.data import Dataset, DataLoader
 
-sys.path.append("/home/zhuhe/TNT-Trajectory-Prediction")
+# sys.path.append("/home/zhuhe/TNT-Trajectory-Prediction") # 这个是为了找到argoverse
+sys.path.append("/home/songx_lab/cse12012530/TNT-Trajectory-Prediction")
 from argoverse.data_loading.argoverse_forecasting_loader import ArgoverseForecastingLoader
 from argoverse.map_representation.map_api import ArgoverseMap
 from argoverse.visualization.visualize_sequences import viz_sequence
@@ -59,6 +60,8 @@ class ArgoversePreprocessor(Preprocessor):
 
     def __getitem__(self, idx):
         f_path = self.loader.seq_list[idx]
+        # print(self.loader.seq_list[0])
+        # print(self.loader.seq_list[1])
         seq = self.loader.get(f_path)
         path, seq_f_name_ext = os.path.split(f_path)
         seq_f_name, ext = os.path.splitext(seq_f_name_ext)
@@ -429,38 +432,45 @@ if __name__ == "__main__":
     # args = parser.parse_args()
     args = {
         # 'root': "/home/zhuhe/Dataset/data",
-        "root": "/home/zhuhe/Dataset/data_carry",  # 专门挑选的场景
-        'dest': "/home/zhuhe/Dataset",
+        # "root": "../Dataset/data_carry",  # 专门挑选的场景
+        # "root":  "../Dataset/data",
+        "root":  "/home/songx_lab/cse12012530/Dataset/data",
+        # 'dest': "/home/zhuhe/Dataset",
+        # 'dest': "../Dataset",
+        'dest': "/home/songx_lab/cse12012530/Dataset",
         'small': False
     }
     # 这里核心是处理成了pkl,并且确定是一个feature一个data
     # args.root = "/home/jb/projects/Code/trajectory-prediction/TNT-Trajectory-Predition/dataset"
     # raw_dir = os.path.join(args.root, "raw_data")#我这边可以不要这行
     raw_dir = args['root']
-    interm_dir = os.path.join(args['dest'], "interm_data_vis" if not args['small'] else "interm_data_small")
-
+    # interm_dir = os.path.join(args['dest'], "interm_data_vis" if not args['small'] else "interm_data_small")
+    interm_dir = os.path.join(args['dest'], "interm_data" if not args['small'] else "interm_data_small")
     # for split in ["train", "val", "test"]:
+    # for split in ["train", "val"]:
     for split in ["train"]:
         # construct the preprocessor and dataloader
         argoverse_processor = ArgoversePreprocessor(root_dir=raw_dir, split=split, save_dir=interm_dir)
         loader = DataLoader(argoverse_processor,
-                            batch_size=1 if sys.gettrace() else 1,  # 1 batch in debug mode
-                            num_workers=0 if sys.gettrace() else 0,  # use only 0 worker in debug mode
+                            batch_size=1 if sys.gettrace() else 16,  # 1 batch in debug mode
+                            num_workers=0 if sys.gettrace() else 24,  # use only 0 worker in debug mode
                             shuffle=False,
                             pin_memory=False,
                             drop_last=False)
 
         for i, data in enumerate(tqdm(loader)):
             if args['small']:
-                if split == "train" and i >= 50000:  # 注意这个数字其实要和上面的batch数字对应，开多worker优化很少
+                if split == "train" and i >= 300000:  # 注意这个数字其实要和上面的batch数字对应，开多worker优化很少
                     break
-                elif split == "val" and i >= 10000:
+                elif split == "val" and i >= 60000:
                     break
-                elif split == "test" and i >= 10000:
+                elif split == "test" and i >= 60000:
                     break
             # 打几条出来看看
-            else:
-                if split != "train" or i >= 1000:
+            else: # middle 那边生成120000的数据
+                if split == "train" and i >= 120000:
+                    break
+                elif split == "test" and i >= 30000:
                     break
     # gateway IDE 如果把画图打开，他就想发送图片
 

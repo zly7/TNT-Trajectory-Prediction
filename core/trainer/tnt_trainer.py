@@ -22,7 +22,7 @@ from core.model.TNT import TNT
 from core.optim_schedule import ScheduledOptim
 from core.util.viz_utils import show_pred_and_gt
 from core.loss import TNTLoss
-# from core.util.preprocessor.argoverse_preprocess_v2 import visualize_data
+# from core.util.preproceswsor.argoverse_preprocess_v2 import visualize_data
 
 class TNTTrainer(Trainer):
     """
@@ -102,7 +102,7 @@ class TNTTrainer(Trainer):
 
         # input dim: (20, 8); output dim: (30, 2)
         # model_name = VectorNet
-        model_name = TNT  # 这么写真的很强
+        model_name = TNT  
         self.model = model_name(
             self.trainset.num_features if hasattr(self.trainset, 'num_features') else self.testset.num_features,
             self.horizon,
@@ -304,7 +304,7 @@ class TNTTrainer(Trainer):
                 out_all_dic_seq_id = {}
 
                 pred_y = out.unsqueeze(dim_out).view((batch_size, k, horizon, 2)).cpu().numpy()
-
+                # 现在有一点
                 # record the prediction and ground truth
                 for batch_id in range(batch_size):
                     seq_id = seq_ids[batch_id]
@@ -324,8 +324,9 @@ class TNTTrainer(Trainer):
                     for batch_id in range(batch_size):
                         seq_id = seq_ids[batch_id]
                         import pandas as pd
-                        raw_path = "/home/zhuhe/Dataset/interm_data_vis/train_intermediate/raw/features_" + str(
-                            seq_id) + ".pkl"
+                        # raw_path = "/home/zhuhe/Dataset/interm_data_vis/train_intermediate/raw/features_" + str(
+                        #     seq_id) + ".pkl"
+                        raw_path = "../Dataset/interm_data_vis/train_intermediate/raw/features_" + str(seq_id) + ".pkl"
                         raw_data = pd.read_pickle(raw_path)
                         from core.util.preprocessor.argoverse_preprocess_v2 import visualize_data_zly
                         temp_keys = raw_data.keys()

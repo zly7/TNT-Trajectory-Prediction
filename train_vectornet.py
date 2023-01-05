@@ -11,7 +11,7 @@ from torch_geometric.data import DataLoader
 # from core.dataloader.dataset import GraphDataset
 # from core.dataloader.argoverse_loader import Argoverse, GraphData
 from core.dataloader.argoverse_loader_v2 import ArgoverseInMem as ArgoverseInMemv2, GraphData
-from core.trainer.vectornet_trainer import VectorNetTrainer
+from core.trainer.vectornet_trainer2 import VectorNetTrainer
 
 TEST = False
 
@@ -25,6 +25,7 @@ def train(n_gpu, args):
     :return:
     """
     # data loading
+    # pkl永远不需要重新生成，需要重新生成的是这个pt文件
     train_set = ArgoverseInMemv2(pjoin(args.data_root, "train_intermediate")).shuffle()
     eval_set = ArgoverseInMemv2(pjoin(args.data_root, "val_intermediate"))
 
@@ -38,7 +39,7 @@ def train(n_gpu, args):
             os.makedirs(output_dir)
 
             # dump the args
-            with open(pjoin(output_dir, 'conf.json'), 'w') as fp:
+            with open(pjoin(output_dir, 'conf.json'), 'w') as fp: 
                 json.dump(vars(args), fp, indent=4, separators=(", ", ": "))
 
     # init trainer
@@ -84,53 +85,81 @@ def train(n_gpu, args):
 
     trainer.save_model("final")
 
+# 我们这个节点是共享128GB的内存,瓶颈是应该是那个Pt文件
+class Args:
+    def __init__(self):
+        self.data_root = "../Dataset/interm_data"
+        self.output_dir = "run/vectornet/"
+        self.num_glayer = 1  # global layer的层数
+        self.aux_loss = True
+        self.batch_size = 256
+        self.n_epoch = 100
+        # self.num_workers = 16  # 这个是控制 CPUloader的数量
+        self.num_workers = 2  # 0代表主线程去做,事实证明，减小numworkers真的可以降低内存的使用，尤其是当你显卡不快的时候，这个变成0没问题
+        self.with_cuda = True
+        # self.multi_gpu = "torch.distributed.launch"
+        self.multi_gpu = False
+        # self.multi_gpu = True
+        self.local_rank = 0
+        self.log_freq = 2
+        self.on_memory = False
+        # self.lr = 0.0012
+        self.lr = 0.001
+        self.warmup_epoch = 20
+        self.lr_update_freq = 10
+        self.lr_decay_rate = 0.9
+        self.adam_weight_decay = 0.01 # 这个是每轮衰减多少
+        self.adam_beta1 = 0.9
+        self.adam_beta2 = 0.999  # 这些接口都是开的很好的
+        self.global_graph_width = 64
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    # parser = argparse.ArgumentParser()
 
-    parser.add_argument("-d", "--data_root", required=False, type=str, default="dataset/interm_data_small",
-                        help="root dir for datasets")
-    parser.add_argument("-o", "--output_dir", required=False, type=str, default="run/vectornet/",
-                        help="ex)dir to save checkpoint and model")
+    # parser.add_argument("-d", "--data_root", required=False, type=str, default="dataset/interm_data_small",
+    #                     help="root dir for datasets")
+    # parser.add_argument("-o", "--output_dir", required=False, type=str, default="run/vectornet/",
+    #                     help="ex)dir to save checkpoint and model")
 
-    parser.add_argument("-l", "--num_glayer", type=int, default=1,
-                        help="number of global graph layers")
-    parser.add_argument("-a", "--aux_loss", action="store_true", default=True,
-                        help="Training with the auxiliary recovery loss")
+    # parser.add_argument("-l", "--num_glayer", type=int, default=1,
+    #                     help="number of global graph layers")
+    # parser.add_argument("-a", "--aux_loss", action="store_true", default=True,
+    #                     help="Training with the auxiliary recovery loss")
 
-    parser.add_argument("-b", "--batch_size", type=int, default=256,
-                        help="number of batch_size")
-    parser.add_argument("-e", "--n_epoch", type=int, default=50,
-                        help="number of epochs")
-    parser.add_argument("-w", "--num_workers", type=int, default=16,
-                        help="dataloader worker size")
+    # parser.add_argument("-b", "--batch_size", type=int, default=256,
+    #                     help="number of batch_size")
+    # parser.add_argument("-e", "--n_epoch", type=int, default=50,
+    #                     help="number of epochs")
+    # parser.add_argument("-w", "--num_workers", type=int, default=16,
+    #                     help="dataloader worker size")
 
-    parser.add_argument("-c", "--with_cuda", action="store_true", default=True,
-                        help="training with CUDA: true, or false")
-    # parser.add_argument("-cd", "--cuda_device", type=int, nargs='+', default=[],
-    #                     help="CUDA device ids")
-    parser.add_argument("-m", "--multi_gpu", action="store_true", default=False,
-                        help="training with distributed data parallel: true, or false")
-    parser.add_argument("-r", "--local_rank", default=0, type=int,
-                        help="the default id of gpu")
+    # parser.add_argument("-c", "--with_cuda", action="store_true", default=True,
+    #                     help="training with CUDA: true, or false")
+    # # parser.add_argument("-cd", "--cuda_device", type=int, nargs='+', default=[],
+    # #                     help="CUDA device ids")
+    # parser.add_argument("-m", "--multi_gpu", action="store_true", default=False,
+    #                     help="training with distributed data parallel: true, or false")
+    # parser.add_argument("-r", "--local_rank", default=0, type=int,
+    #                     help="the default id of gpu")
 
-    parser.add_argument("--log_freq", type=int, default=2,
-                        help="printing loss every n iter: setting n")
-    parser.add_argument("--on_memory", type=bool, default=True, help="Loading on memory: true or false")
+    # parser.add_argument("--log_freq", type=int, default=2,
+    #                     help="printing loss every n iter: setting n")
+    # parser.add_argument("--on_memory", type=bool, default=True, help="Loading on memory: true or false")
 
-    parser.add_argument("--lr", type=float, default=1e-3, help="learning rate of adam")
-    parser.add_argument("-we", "--warmup_epoch", type=int, default=20,
-                        help="the number of warmup epoch with initial learning rate, after the learning rate decays")
-    parser.add_argument("-luf", "--lr_update_freq", type=int, default=5,
-                        help="learning rate decay frequency for lr scheduler")
-    parser.add_argument("-ldr", "--lr_decay_rate", type=float, default=0.9, help="lr scheduler decay rate")
+    # parser.add_argument("--lr", type=float, default=1e-3, help="learning rate of adam")
+    # parser.add_argument("-we", "--warmup_epoch", type=int, default=20,
+    #                     help="the number of warmup epoch with initial learning rate, after the learning rate decays")
+    # parser.add_argument("-luf", "--lr_update_freq", type=int, default=5,
+    #                     help="learning rate decay frequency for lr scheduler")
+    # parser.add_argument("-ldr", "--lr_decay_rate", type=float, default=0.9, help="lr scheduler decay rate")
 
-    parser.add_argument("--adam_weight_decay", type=float, default=0.01, help="weight_decay of adam")
-    parser.add_argument("--adam_beta1", type=float, default=0.9, help="adam first beta value")
-    parser.add_argument("--adam_beta2", type=float, default=0.999, help="adam first beta value")
+    # parser.add_argument("--adam_weight_decay", type=float, default=0.01, help="weight_decay of adam")
+    # parser.add_argument("--adam_beta1", type=float, default=0.9, help="adam first beta value")
+    # parser.add_argument("--adam_beta2", type=float, default=0.999, help="adam first beta value")
 
-    parser.add_argument("-rc", "--resume_checkpoint", type=str, help="resume a checkpoint for fine-tune")
-    parser.add_argument("-rm", "--resume_model", type=str, help="resume a model state for fine-tune")
+    # parser.add_argument("-rc", "--resume_checkpoint", type=str, help="resume a checkpoint for fine-tune")
+    # parser.add_argument("-rm", "--resume_model", type=str, help="resume a model state for fine-tune")
 
-    args = parser.parse_args()
+    args = Args()
     train(args.local_rank, args)
