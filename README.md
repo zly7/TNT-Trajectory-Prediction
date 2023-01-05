@@ -1,3 +1,6 @@
+## 这是2022年秋季创新实践对于TNTnet的研究和改进， 以跑通和复现为主
+
+
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/tnt-target-driven-trajectory-prediction/trajectory-prediction-on-interaction-dataset-2)](https://paperswithcode.com/sota/trajectory-prediction-on-interaction-dataset-2?p=tnt-target-driven-trajectory-prediction)
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/tnt-target-driven-trajectory-prediction/motion-forecasting-on-argoverse-cvpr-2020)](https://paperswithcode.com/sota/motion-forecasting-on-argoverse-cvpr-2020?p=tnt-target-driven-trajectory-prediction)
 
